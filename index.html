@@ -186,6 +186,7 @@ footer {
     <button class="tab-btn" onclick="switchTab('math')">📐 Math &amp; Theory</button>
     <button class="tab-btn" onclick="switchTab('flaws')">⚠️ Errors Corrected</button>
     <button class="tab-btn" onclick="switchTab('systems')">🏭 Existing Systems</button>
+    <button class="tab-btn" onclick="switchTab('padic')">🔢 p-adic Distance</button>
   </nav>
 
   <div id="tab-demo" class="tab-content active">
@@ -365,6 +366,88 @@ footer {
           <tr><td>2026</td><td>HMamba: Hyperbolic Mamba for Sequential Recommendation</td><td>ACM TOIS</td><td>16</td></tr>
         </tbody>
       </table>
+    </div>
+  </div>
+
+  <div id="tab-padic" class="tab-content">
+    <div class="card">
+      <h2>🔢 p-adic (2-adic) Distance Benchmark — Direct Ultrametric Measurement</h2>
+      <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px;">
+        <strong>p-adic numbers</strong> are the canonical ultrametric field. For p=2, the <strong>2-adic absolute value</strong>
+        |x|₂ = 2<sup>−ord₂(x)</sup> measures how many factors of 2 divide x. This creates a perfect tree structure
+        where each bit position is a hierarchy level. <strong>v-PuNNs</strong> (2025) use this exact principle — 
+        neurons are characteristic functions of p-adic balls in ℤₚ.
+      </p>
+      <div class="search-bar">
+        <input id="padicSelect" placeholder="Select property: e.g., A1" value="A1" style="flex:0.4;">
+        <button onclick="runPadicBenchmark()">Run Benchmark</button>
+        <span style="margin-left:12px;font-size:13px;color:var(--text-dim);">
+          Prime: <strong>p=2</strong> (2-adic / binary)
+        </span>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:16px;">
+        <div>
+          <h3 style="margin-top:0;">Binary Feature Encoding (2-adic)</h3>
+          <p style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">
+            Each numerical feature is scaled to [0, 2¹⁶) and binary-encoded. 
+            The <strong>number of matching leading bits</strong> = 2-adic valuation ord₂(|x−y|).
+            More matching bits = shallower LCA = higher similarity.
+          </p>
+          <div id="padicBitViz" style="font-family:monospace;font-size:12px;overflow-x:auto;background:var(--code-bg);padding:12px;border-radius:6px;"></div>
+        </div>
+        <div>
+          <h3 style="margin-top:0;">Comparison with Cosine Distance</h3>
+          <p style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">
+            Same property triples compared under both metrics. 
+            2-adic distance <strong>guarantees zero</strong> ultrametric triangle violations.
+            Cosine distance (Euclidean) produces violations on hierarchical data.
+          </p>
+          <div id="padicCompare" style="font-size:12px;"></div>
+        </div>
+      </div>
+
+      <div class="metrics-row" style="margin-top:16px;">
+        <div class="metric-card">
+          <div class="label">2-adic Violations</div>
+          <div class="value ok-color" id="padicViolations">0</div>
+          <div class="label">Guaranteed by ultrametric property</div>
+        </div>
+        <div class="metric-card">
+          <div class="label">Cosine Violations</div>
+          <div class="value warn-color" id="padicCosViolations">-</div>
+          <div class="label">Same triples, different metric</div>
+        </div>
+        <div class="metric-card">
+          <div class="label">2-adic Avg Bits Shared</div>
+          <div class="value" style="color:var(--purple);" id="padicAvgBits">-</div>
+          <div class="label">Across all property pairs</div>
+        </div>
+        <div class="metric-card">
+          <div class="label">Rank Correlation</div>
+          <div class="value" style="color:var(--accent);" id="padicRankCorr">-</div>
+          <div class="label">Spearman ρ: 2-adic vs Cosine</div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:16px;">
+        <div>
+          <h3 style="margin-top:0;">Top 10 by 2-adic Similarity</h3>
+          <div id="padicTop" style="font-size:12px;"></div>
+        </div>
+        <div>
+          <h3 style="margin-top:0;">Top 10 by Cosine Similarity</h3>
+          <div id="padicCosTop" style="font-size:12px;"></div>
+        </div>
+      </div>
+
+      <div style="margin-top:16px;font-size:13px;color:var(--text-dim);">
+        <strong>🔬 Key insight:</strong> The 2-adic distance captures hierarchical structure directly from the bit representation.
+        Two properties that share 14 leading bits across features are "siblings" in the implicit p-adic tree,
+        while cosine similarity treats all dimensions as continuous and orthogonal. This is why v-PuNNs achieve
+        <strong>99.96% accuracy on WordNet</strong> with zero triangle violations — the p-adic structure
+        <em>is</em> the taxonomy.
+      </div>
     </div>
   </div>
 
@@ -622,7 +705,7 @@ function switchTab(tab) {
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
   document.querySelectorAll('.tab-content').forEach(d=>d.classList.remove('active'));
   document.getElementById('tab-'+tab).classList.add('active');
-  const idx = ['demo','dendrogram','math','flaws','systems'].indexOf(tab);
+  const idx = ['demo','dendrogram','math','flaws','systems','padic'].indexOf(tab);
   const btns = document.querySelectorAll('.tab-btn');
   if (idx >= 0 && btns[idx]) btns[idx].classList.add('active');
   if (tab==='dendrogram' && TREE) setTimeout(()=>drawDendrogram(TREE), 100);
@@ -643,6 +726,196 @@ function init() {
   doSearch();
 }
 init();
+
+// ═══ P-ADIC (2-ADIC) BENCHMARK ═══
+function toBinary16(val, min, max) {
+  // Scale to [0, 65535] and convert to 16-bit binary string
+  const scaled = Math.floor(((val - min) / (max - min + 1e-10)) * 65535);
+  return scaled.toString(2).padStart(16, '0');
+}
+
+function leadingCommonBits(a, b) {
+  let count = 0;
+  for (let i = 0; i < Math.min(a.length, b.length); i++) {
+    if (a[i] === b[i]) count++;
+    else break;
+  }
+  return count;
+}
+
+function padicDistance(a, b) {
+  // 2-adic distance: 2^(-total_common_bits)
+  const totalBits = a.length;
+  const common = leadingCommonBits(a, b);
+  return totalBits > 0 ? Math.pow(2, -common) : 1;
+}
+
+function runPadicBenchmark() {
+  const selId = document.getElementById('padicSelect').value.trim().toUpperCase();
+  const selIdx = RAW_DATA.findIndex(d => d.id === selId);
+  if (selIdx < 0) {
+    document.getElementById('padicBitViz').innerHTML = '<span style="color:var(--red);">Property not found. Try: A1, S1, N1, C1, etc.</span>';
+    return;
+  }
+
+  // Build 2-adic binary encodings for all properties
+  const binaries = RAW_DATA.map(d => {
+    const parts = [];
+    for (let f of FEATURES) {
+      parts.push(toBinary16(d[f], MIN_VALS[f], MAX_VALS[f]));
+    }
+    return parts.join(''); // concatenated 96-bit binary string
+  });
+
+  const selBin = binaries[selIdx];
+  const selProp = RAW_DATA[selIdx];
+
+  // Show bit visualization for selected property
+  const bitLabels = FEATURES.map(f => f.padEnd(6)).join(' | ');
+  const bitVals = FEATURES.map(f => toBinary16(selProp[f], MIN_VALS[f], MAX_VALS[f])).join(' | ');
+  document.getElementById('padicBitViz').innerHTML = `
+    <div style="color:var(--accent);margin-bottom:4px;"><strong>${selProp.city} ${selProp.style}</strong> (${selProp.beds}BR/${selProp.baths}BA, $${(selProp.price/1000).toFixed(0)}k)</div>
+    <div style="color:var(--text-dim);font-size:10px;margin-bottom:2px;">${bitLabels}</div>
+    <div style="color:var(--green);font-size:11px;word-break:break-all;">${bitVals}</div>
+    <div style="color:var(--text-dim);font-size:10px;margin-top:6px;">96-bit vector = 6 features × 16-bit binary encoding</div>
+    <div style="color:var(--text-dim);font-size:10px;">2-adic distance d(x,y) = 2<sup>−ord₂(|x−y|)</sup> = 2<sup>−common_leading_bits</sup></div>
+  `;
+
+  // Compute 2-adic distances from selected property
+  const padicDists = RAW_DATA.map((d, i) => ({
+    ...d, idx: i,
+    bits: leadingCommonBits(selBin, binaries[i]),
+    padicDist: padicDistance(selBin, binaries[i]),
+    cosSim: cosineSim(VECTORS[selIdx], VECTORS[i])
+  }));
+  padicDists.sort((a, b) => b.bits - a.bits); // more bits = more similar
+
+  // Cosine distances for comparison
+  const cosDists = RAW_DATA.map((d, i) => ({
+    ...d, idx: i,
+    bits: leadingCommonBits(selBin, binaries[i]),
+    cosDist: 1 - cosineSim(VECTORS[selIdx], VECTORS[i])
+  }));
+  cosDists.sort((a, b) => a.cosDist - b.cosDist); // lower distance = more similar
+
+  // Triangle violation check
+  const limit = Math.min(10, RAW_DATA.length);
+  let padicViol = 0, cosViol = 0, totalTriples = 0;
+
+  for (let i = 0; i < limit; i++) {
+    for (let j = i+1; j < limit; j++) {
+      for (let k = j+1; k < limit; k++) {
+        totalTriples++;
+        // 2-adic
+        const pAB = padicDistance(binaries[i], binaries[j]);
+        const pBC = padicDistance(binaries[j], binaries[k]);
+        const pAC = padicDistance(binaries[i], binaries[k]);
+        if (pAC > Math.max(pAB, pBC) + 1e-10) padicViol++;
+
+        // Cosine
+        const cAB = 1 - cosineSim(VECTORS[i], VECTORS[j]);
+        const cBC = 1 - cosineSim(VECTORS[j], VECTORS[k]);
+        const cAC = 1 - cosineSim(VECTORS[i], VECTORS[k]);
+        if (cAC > Math.max(cAB, cBC) + 0.0001) cosViol++;
+      }
+    }
+  }
+
+  // Average bits shared across all pairs
+  let totalBits = 0, pairCount = 0;
+  for (let i = 0; i < RAW_DATA.length; i++) {
+    for (let j = i+1; j < RAW_DATA.length; j++) {
+      totalBits += leadingCommonBits(binaries[i], binaries[j]);
+      pairCount++;
+    }
+  }
+
+  // Spearman rank correlation
+  const ranks2adic = RAW_DATA.map((_, i) => leadingCommonBits(selBin, binaries[i]));
+  const ranksCos = RAW_DATA.map((_, i) => cosineSim(VECTORS[selIdx], VECTORS[i]));
+  const rho = spearmanRho(ranks2adic, ranksCos);
+
+  // Render comparison
+  document.getElementById('padicCompare').innerHTML = `
+    <table style="width:100%;font-size:11px;border-collapse:collapse;">
+      <tr style="color:var(--accent);"><th style="text-align:left;padding:4px;">Triple</th><th>2-adic d₁₂</th><th>2-adic d₂₃</th><th>2-adic d₁₃</th><th>max(d₁₂,d₂₃)</th><th>Viol?</th><th style="padding-left:12px;">Cos Viol?</th></tr>
+    ` + (() => {
+      let rows = '';
+      const lim = Math.min(8, limit);
+      for (let i = 0; i < lim; i++) {
+        for (let j = i+1; j < lim; j++) {
+          for (let k = j+1; k < lim; k++) {
+            const pAB = padicDistance(binaries[i], binaries[j]);
+            const pBC = padicDistance(binaries[j], binaries[k]);
+            const pAC = padicDistance(binaries[i], binaries[k]);
+            const maxP = Math.max(pAB, pBC);
+            const pViol = pAC > maxP + 1e-10;
+            const cAB = 1 - cosineSim(VECTORS[i], VECTORS[j]);
+            const cBC = 1 - cosineSim(VECTORS[j], VECTORS[k]);
+            const cAC = 1 - cosineSim(VECTORS[i], VECTORS[k]);
+            const cViol = cAC > Math.max(cAB, cBC) + 0.0001;
+            if (rows.split('<tr>').length < 8) {
+              rows += `<tr>
+                <td style="padding:2px;">${RAW_DATA[i].id}-${RAW_DATA[j].id}-${RAW_DATA[k].id}</td>
+                <td style="text-align:center;">${pAB.toFixed(3)}</td>
+                <td style="text-align:center;">${pBC.toFixed(3)}</td>
+                <td style="text-align:center;">${pAC.toFixed(3)}</td>
+                <td style="text-align:center;">${maxP.toFixed(3)}</td>
+                <td style="text-align:center;color:${pViol?'var(--red)':'var(--green)'};">${pViol?'⚠':'✓'}</td>
+                <td style="text-align:center;color:${cViol?'var(--red)':'var(--green)'};padding-left:12px;">${cViol?'⚠':'✓'}</td>
+              </tr>`;
+            }
+          }
+        }
+      }
+      return rows;
+    })() + '</table>';
+
+  // Update metrics
+  document.getElementById('padicViolations').textContent = padicViol;
+  document.getElementById('padicCosViolations').textContent = cosViol;
+  document.getElementById('padicAvgBits').textContent = (totalBits / pairCount).toFixed(1);
+  document.getElementById('padicRankCorr').textContent = rho.toFixed(3);
+
+  // Top 10 by 2-adic
+  document.getElementById('padicTop').innerHTML = padicDists.slice(0, 10).map(d => `
+    <div class="result-item tree-result" style="font-size:11px;padding:6px 8px;">
+      <span style="float:right;color:var(--orange);">${d.bits} bits</span>
+      <strong>${d.city}</strong> ${d.style} — ${d.beds}BR $${(d.price/1000).toFixed(0)}k
+      <span style="color:var(--text-dim);font-size:10px;">d₂=${d.padicDist.toFixed(5)}</span>
+    </div>
+  `).join('');
+
+  // Top 10 by Cosine
+  document.getElementById('padicCosTop').innerHTML = cosDists.slice(0, 10).map(d => `
+    <div class="result-item vector-result" style="font-size:11px;padding:6px 8px;">
+      <span style="float:right;color:var(--accent);">cos=${(1-d.cosDist).toFixed(3)}</span>
+      <strong>${d.city}</strong> ${d.style} — ${d.beds}BR $${(d.price/1000).toFixed(0)}k
+      <span style="color:var(--text-dim);font-size:10px;">2-adic bits: ${d.bits}</span>
+    </div>
+  `).join('');
+}
+
+function spearmanRho(a, b) {
+  const n = a.length;
+  const rankA = getRanks(a), rankB = getRanks(b);
+  let sumD2 = 0;
+  for (let i = 0; i < n; i++) {
+    const d = rankA[i] - rankB[i];
+    sumD2 += d * d;
+  }
+  return 1 - (6 * sumD2) / (n * (n*n - 1));
+}
+
+function getRanks(arr) {
+  const indexed = arr.map((v, i) => ({v, i}));
+  indexed.sort((a, b) => b.v - a.v);
+  const ranks = new Array(arr.length);
+  for (let i = 0; i < indexed.length; i++) {
+    ranks[indexed[i].i] = i + 1;
+  }
+  return ranks;
+}
 </script>
 </body>
 </html>
